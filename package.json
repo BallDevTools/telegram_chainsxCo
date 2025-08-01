@@ -1,0 +1,50 @@
+{
+  "name": "telegram-crypto-bot",
+  "version": "1.0.0",
+  "description": "Crypto Membership NFT Telegram Bot - Performance Optimized for 1 Core 2GB RAM",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon --inspect src/app.js",
+    "setup": "node scripts/setup.js",
+    "migrate": "node scripts/migrate.js",
+    "test": "jest --detectOpenHandles",
+    "benchmark": "node scripts/benchmark.js",
+    "deploy": "pm2 start ecosystem.config.js",
+    "logs": "pm2 logs crypto-bot",
+    "restart": "pm2 restart crypto-bot",
+    "status": "pm2 status",
+    "stop": "pm2 stop crypto-bot"
+  },
+  "dependencies": {
+    "telegraf": "^4.15.0",
+    "express": "^4.18.2",
+    "sqlite3": "^5.1.6",
+    "sqlite": "^5.0.1",
+    "ethers": "^6.8.0",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1",
+    "compression": "^1.7.4",
+    "helmet": "^7.1.0",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.7.0",
+    "pm2": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "crypto",
+    "nft",
+    "membership",
+    "blockchain",
+    "bsc"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
