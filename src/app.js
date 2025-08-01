@@ -20,11 +20,9 @@ class CryptoBotApplication {
         this.dashboard = new PerformanceDashboard();
         this.alerts = new AlertSystem();
         this.isShuttingDown = false;
-        
-        // Bind shutdown handlers
+
         this.setupGracefulShutdown();
-        
-        // Enable garbage collection if available
+
         if (global.gc) {
             console.log('♻️ Garbage collection enabled');
         }
@@ -34,108 +32,87 @@ class CryptoBotApplication {
         try {
             console.log('🚀 Starting Crypto Membership Bot...');
             console.log(`📊 Node.js: ${process.version}, Memory: ${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`);
-            
-            // 1. Initialize Database
+
+            // 1. DB
             console.log('📁 Initializing database...');
             await initializeDatabase();
-            
-            // 2. Initialize Blockchain Service
+
+            // 2. Blockchain
             console.log('⛓️ Connecting to blockchain...');
             this.blockchain = new BlockchainService();
             await this.blockchain.initialize();
-            
-            // 3. Initialize Bot
+
+            // 3. Bot
             console.log('🤖 Initializing Telegram bot...');
             this.bot = await initializeBot();
-            
-            // 4. Setup Web Server (Health checks & Metrics)
+
+            // 4. Webhook URL
+            const domain = process.env.WEBHOOK_DOMAIN;
+            const path = `/telegram`;
+            await this.bot.telegram.setWebhook(`${domain}${path}`);
+            console.log(`🔗 Webhook set to ${domain}${path}`);
+
+            // 5. Web Server
             console.log('🌐 Starting web server...');
-            await this.setupWebServer();
-            
-            // 5. Start Performance Monitoring
+            await this.setupWebServer(path);
+
+            // 6. Monitor
             console.log('📊 Starting performance monitoring...');
             this.startMonitoring();
-            
-            // 6. Start Bot
-            console.log('✅ Bot initialization complete!');
-            await this.bot.launch();
-            
-            console.log(`🎉 Crypto Membership Bot is running!`);
-            console.log(`📱 Bot: @${process.env.BOT_USERNAME}`);
-            console.log(`🌐 Health: http://localhost:${process.env.PORT || 3000}/health`);
-            console.log(`📊 Metrics: http://localhost:${process.env.METRICS_PORT || 3001}/metrics`);
-            
+
+            console.log('✅ Bot initialized via Webhook!');
+            console.log(`🌐 Health: ${domain}/health`);
+            console.log(`📊 Metrics: ${domain}/metrics`);
         } catch (error) {
             console.error('❌ Failed to initialize bot:', error);
             await this.shutdown(1);
         }
     }
 
-    async setupWebServer() {
+    async setupWebServer(webhookPath = '/telegram') {
         const app = express();
         const port = process.env.PORT || 3000;
-        
-        // Security middleware
+
+        app.set('trust proxy', true);
         app.use(helmet());
         app.use(compression());
         app.use(cors());
         app.use(express.json({ limit: '1mb' }));
-        
-        // Rate limiting middleware
+
         const rateLimit = require('./bot/middleware/rateLimit');
         app.use(rateLimit);
-        
-        // Health check endpoint
+
+        // ✅ Webhook
+        app.use(webhookPath, this.bot.webhookCallback(webhookPath));
+
         app.get('/health', (req, res) => {
             const status = this.dashboard.getSystemStatus();
-            const health = {
+            res.json({
                 status: 'healthy',
                 timestamp: new Date().toISOString(),
                 uptime: status.uptime,
                 memory: status.memory,
                 performance: status.performance,
                 blockchain: this.blockchain.getStatus(),
-                database: 'connected'
-            };
-            
-            res.json(health);
+                database: 'connected',
+            });
         });
-        
-        // Metrics endpoint
+
         app.get('/metrics', (req, res) => {
             const metrics = this.dashboard.getDetailedMetrics();
             res.json(metrics);
         });
-        
-        // Webhook endpoint (optional)
-        if (process.env.WEBHOOK_URL) {
-            const webhookPath = `/webhook/${process.env.BOT_TOKEN}`;
-            app.use(webhookPath, (req, res) => {
-                this.bot.handleUpdate(req.body, res);
-            });
-            
-            // Set webhook
-            await this.bot.telegram.setWebhook(`${process.env.WEBHOOK_URL}${webhookPath}`);
-            console.log('🔗 Webhook configured');
-        }
-        
-        // 404 handler
-        app.use('*', (req, res) => {
-            res.status(404).json({ error: 'Not found' });
-        });
-        
-        // Global error handler
+
+        app.use('*', (req, res) => res.status(404).json({ error: 'Not found' }));
         app.use((err, req, res, next) => {
             console.error('Web server error:', err);
             res.status(500).json({ error: 'Internal server error' });
         });
-        
-        // Start server
+
         this.webServer = app.listen(port, process.env.HOST || '0.0.0.0', () => {
             console.log(`🌐 Web server running on port ${port}`);
         });
-        
-        // Setup metrics server if different port
+
         const metricsPort = process.env.METRICS_PORT;
         if (metricsPort && metricsPort !== port) {
             const metricsApp = express();
@@ -143,7 +120,6 @@ class CryptoBotApplication {
                 const metrics = this.dashboard.getDetailedMetrics();
                 res.json(metrics);
             });
-            
             metricsApp.listen(metricsPort, () => {
                 console.log(`📊 Metrics server running on port ${metricsPort}`);
             });
@@ -151,36 +127,31 @@ class CryptoBotApplication {
     }
 
     startMonitoring() {
-        // Performance monitoring every 30 seconds
         setInterval(() => {
             this.dashboard.recordMetrics();
             this.alerts.checkAlerts(this.dashboard.getSystemStatus());
         }, 30000);
-        
-        // Garbage collection every 5 minutes
+
         setInterval(() => {
             if (global.gc) {
-                const memoryBefore = process.memoryUsage().rss;
+                const memBefore = process.memoryUsage().rss;
                 global.gc();
-                const memoryAfter = process.memoryUsage().rss;
-                const freed = memoryBefore - memoryAfter;
-                
-                if (freed > 50 * 1024 * 1024) { // More than 50MB freed
+                const memAfter = process.memoryUsage().rss;
+                const freed = memBefore - memAfter;
+                if (freed > 50 * 1024 * 1024) {
                     console.log(`♻️ GC freed ${Math.round(freed / 1024 / 1024)}MB`);
                 }
             }
         }, 5 * 60 * 1000);
-        
-        // Blockchain event monitoring
+
         setInterval(async () => {
             try {
                 await this.blockchain.processNewEvents();
             } catch (error) {
                 console.error('❌ Blockchain monitoring error:', error);
             }
-        }, 10000); // Every 10 seconds
-        
-        // Database optimization every hour
+        }, 10000);
+
         setInterval(async () => {
             try {
                 const db = require('./config/database').getDatabase();
@@ -193,20 +164,18 @@ class CryptoBotApplication {
     }
 
     setupGracefulShutdown() {
-        const signals = ['SIGTERM', 'SIGINT', 'SIGUSR2'];
-        
-        signals.forEach(signal => {
+        ['SIGTERM', 'SIGINT', 'SIGUSR2'].forEach(signal => {
             process.on(signal, async () => {
                 console.log(`\n📴 Received ${signal}, starting graceful shutdown...`);
                 await this.shutdown(0);
             });
         });
-        
+
         process.on('uncaughtException', async (error) => {
             console.error('💥 Uncaught Exception:', error);
             await this.shutdown(1);
         });
-        
+
         process.on('unhandledRejection', async (reason, promise) => {
             console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
             await this.shutdown(1);
@@ -218,38 +187,33 @@ class CryptoBotApplication {
             console.log('⏳ Shutdown already in progress...');
             return;
         }
-        
+
         this.isShuttingDown = true;
         console.log('🛑 Shutting down gracefully...');
-        
+
         try {
-            // Stop accepting new requests
             if (this.webServer) {
                 this.webServer.close();
                 console.log('🌐 Web server stopped');
             }
-            
-            // Stop bot
+
             if (this.bot) {
                 this.bot.stop('SIGTERM');
                 console.log('🤖 Bot stopped');
             }
-            
-            // Close blockchain connections
+
             if (this.blockchain) {
                 await this.blockchain.cleanup();
                 console.log('⛓️ Blockchain connections closed');
             }
-            
-            // Close database
+
             const db = require('./config/database').getDatabase();
             if (db) {
                 await db.close();
                 console.log('🗄️ Database closed');
             }
-            
+
             console.log('✅ Graceful shutdown complete');
-            
         } catch (error) {
             console.error('❌ Error during shutdown:', error);
         } finally {
@@ -258,10 +222,7 @@ class CryptoBotApplication {
     }
 }
 
-// Create and start the application
 const app = new CryptoBotApplication();
-
-// Handle startup
 app.initialize().catch(async (error) => {
     console.error('💥 Failed to start application:', error);
     await app.shutdown(1);

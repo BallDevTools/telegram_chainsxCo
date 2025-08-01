@@ -2813,7 +2813,7 @@ class BlockchainService {
             }
             
             const fromBlock = this.lastBlockNumber + 1;
-            const toBlock = Math.min(currentBlock, fromBlock + 20); // Process max 20 blocks at once (reduced from 100)
+            const toBlock = Math.min(currentBlock, fromBlock + 4); // Process max 20 blocks at once (reduced from 100)
             
             console.log(`📡 Processing events from block ${fromBlock} to ${toBlock}`);
             
